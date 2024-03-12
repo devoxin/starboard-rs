@@ -80,9 +80,13 @@ impl Handler {
         guild.channels.values().find(|channel| channel.name == "starboard").cloned()
     }
 
-    fn get_channel_from_cache(&self, cache: &Cache, guild_id: &GuildId, channel_id: &ChannelId) -> Option<GuildChannel> {
+    fn get_channel_from_guild_cache(&self, cache: &Cache, guild_id: &GuildId, channel_id: &ChannelId) -> Option<GuildChannel> {
         let guild = cache.guild(guild_id)?;
         guild.channels.values().find(|channel| channel.id.eq(channel_id)).cloned()
+    }
+
+    fn get_channel_from_cache(&self, cache: &Cache, channel_id: &ChannelId) -> Option<GuildChannel> {
+        cache.channel(channel_id).map(|channel| channel.clone())
     }
 
     async fn get_starboard_config(&self, cache: &Cache, guild_id: &GuildId) -> (Option<GuildChannel>, i8) {
@@ -91,7 +95,7 @@ impl Handler {
             .bind(guild_id.get() as i64)
             .fetch_optional(&self.db)
             .await {
-                Ok(Some((id, min_stars))) => (self.get_channel_from_cache(cache, guild_id, &ChannelId::new(id as u64)), min_stars),
+                Ok(Some((id, min_stars))) => (self.get_channel_from_guild_cache(cache, guild_id, &ChannelId::new(id as u64)), min_stars),
                 Ok(None) => (self.find_starboard_channel(cache, guild_id), 1),
                 Err(err) => {
                     eprintln!("Error in SQL: {err}");
@@ -118,6 +122,45 @@ impl Handler {
                 }
             }
     }
+
+    async fn check_reactions_and_delete(&self, ctx: &Context, reaction: &Reaction) {
+        if !reaction.emoji.unicode_eq("⭐") {
+            return;
+        }
+
+        let Some(guild_id) = reaction.guild_id else {
+            return;
+        };
+
+        let (Some(channel), min_stars) = self.get_starboard_config(&ctx.cache, &guild_id).await else {
+            return;
+        };
+
+        // If it's not starred, don't bother doing any additional handling.
+        let Some(star_message) = self.get_starboard_message(&ctx.http, &channel, reaction.message_id).await else {
+            return;
+        };
+
+        let Ok(message) = reaction.message(&ctx.http).await else {
+            return;
+        };
+
+        let Ok(mut users) = reaction.users(&ctx.http, reaction.emoji.clone(), Some(100), None::<UserId>).await else {
+            return;
+        };
+
+        users.retain(|u| !u.bot && u.id != message.author.id);
+
+        if users.is_empty() || users.len() < min_stars.try_into().unwrap() {
+            let _ = star_message.delete(&ctx.http).await;
+
+            sqlx::query::<_>("DELETE FROM starids WHERE msgid = ?")
+                .bind(reaction.message_id.get() as i64)
+                .execute(&self.db)
+                .await
+                .expect("Failed to delete starboard entry from database!");
+        }
+    }
 }
 
 #[async_trait]
@@ -139,19 +182,17 @@ impl EventHandler for Handler {
             return;
         }
 
-        let Ok(mut users) = reaction.users(&ctx.http, reaction.emoji.clone(), Some(100), None::<UserId>).await else {
-            return;
-        };
-
         let Ok(message) = reaction.message(&ctx.http).await else {
             return;
         };
 
-        let is_compatible_kind = !message.embeds.is_empty() && message.embeds[0].kind == Some("image".to_string());
-
-        if message.content.is_empty() && message.attachments.is_empty() && !is_compatible_kind {
+        if message.content.is_empty() && message.attachments.is_empty() && (message.embeds.is_empty() || message.embeds[0].kind == Some("image".to_string())) {
             return;
         }
+
+        let Ok(mut users) = reaction.users(&ctx.http, reaction.emoji.clone(), Some(100), None::<UserId>).await else {
+            return;
+        };
 
         users.retain(|u| !u.bot && u.id != message.author.id);
 
@@ -159,7 +200,7 @@ impl EventHandler for Handler {
             return;
         }
 
-        if let Some(mut star_message) = self.get_starboard_message(&ctx.http, &channel, message.id).await {
+        if let Some(mut star_message) = self.get_starboard_message(&ctx.http, &channel, reaction.message_id).await {
             return star_message.edit(&ctx.http, EditMessage::new().content(format!("{} ⭐", users.len())))
                 .await
                 .expect("Failed to edit starboard message!");
@@ -172,38 +213,45 @@ impl EventHandler for Handler {
             .embed(self.build_embed(&message))
             .components(vec![components]);
 
-        let Ok(starboard_message) = channel.send_message(&ctx.http, to_send).await else {
-            return;
+        if let Ok(starboard_message) = channel.send_message(&ctx.http, to_send).await {
+            sqlx::query::<_>("INSERT INTO starids (msgid, starid) VALUES (?, ?)")
+                .bind(message.id.get() as i64)
+                .bind(starboard_message.id.get() as i64)
+                .execute(&self.db)
+                .await
+                .expect("Failed to insert into database!");
         };
-
-        sqlx::query::<_>("INSERT INTO starids(msgid, starid) VALUES (?, ?)")
-            .bind(message.id.get() as i64)
-            .bind(starboard_message.id.get() as i64)
-            .execute(&self.db)
-            .await
-            .expect("Failed to insert into database!");
     }
 
     async fn reaction_remove(&self, ctx: Context, reaction: Reaction) {
-        if !reaction.emoji.unicode_eq("⭐") {
-            return;
-        }
-
-        let Some(guild_id) = reaction.guild_id else {
-            return;
-        };
-
-        let (Some(channel), min_stars) = self.get_starboard_config(&ctx.cache, &guild_id).await else {
-            return;
-        };
+        self.check_reactions_and_delete(&ctx, &reaction).await;
     }
 
     async fn reaction_remove_all(&self, ctx: Context, channel_id: ChannelId, message_id: MessageId) {
+        let (starboard_channel, _) = match self.get_channel_from_cache(&ctx.cache, &channel_id) {
+            Some(channel) => match self.get_starboard_config(&ctx.cache, &channel.guild_id).await {
+                (Some(channel), stars) => (channel, stars),
+                (None, _) => return
+            },
+            None => return
+        };
 
+        let Some(starboard_message) = self.get_starboard_message(&ctx.http, &starboard_channel, message_id).await else {
+            return;
+        };
+
+        // There shouldn't be any reactions left on this message so we delete it, and also from the database.
+        let _ = starboard_message.delete(&ctx.http).await;
+
+        sqlx::query::<_>("DELETE FROM starids WHERE msgid = ?")
+                .bind(message_id.get() as i64)
+                .execute(&self.db)
+                .await
+                .expect("Failed to delete starboard entry from database!");
     }
 
     async fn reaction_remove_emoji(&self, ctx: Context, reaction: Reaction) {
-        
+        self.check_reactions_and_delete(&ctx, &reaction).await;
     }
 }
 
