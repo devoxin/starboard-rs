@@ -150,13 +150,11 @@ impl Handler {
         let mut has_count = !is_all;
 
         if !is_all {
-            let Ok(mut users) = reaction.users(&ctx.http, reaction.emoji.clone(), Some(100), None::<UserId>).await else {
+            let Ok(users) = reaction.users(&ctx.http, reaction.emoji.clone(), Some(100), None::<UserId>).await else {
                 return;
             };
 
-            users.retain(|u| !u.bot && u.id != message.author.id);
-
-            has_count = users.is_empty() || users.len() < min_stars.try_into().unwrap();
+            has_count = users.iter().filter(|u| !u.bot && u.id != message.author.id).count() > 0;
         }
 
         if !has_count {
