@@ -2,7 +2,7 @@ use std::env::var;
 use std::fmt::Write;
 
 use dotenv::dotenv;
-use serenity::{all::{Cache, CacheHttp, ChannelId, Context, CreateActionRow, CreateButton, CreateEmbed, CreateEmbedAuthor, CreateMessage, EditMessage, EventHandler, GatewayIntents, GuildChannel, GuildId, HttpError, Message, MessageId, Reaction, UserId}, async_trait, Client};
+use serenity::{all::{Cache, CacheHttp, ChannelId, Context, CreateActionRow, CreateButton, CreateEmbed, CreateEmbedAuthor, CreateMessage, EditMessage, EventHandler, GatewayIntents, GuildChannel, GuildId, HttpError, Message, MessageId, Reaction, UserId}, async_trait, futures::TryFutureExt, Client};
 use sqlx::SqlitePool;
 
 struct Handler {
@@ -207,18 +207,18 @@ impl EventHandler for Handler {
             return;
         }
 
-        let Ok(mut users) = reaction.users(&ctx.http, reaction.emoji.clone(), Some(100), None::<UserId>).await else {
-            return;
-        };
+        let Ok(count) = reaction.users(&ctx.http, reaction.emoji.clone(), Some(100), None::<UserId>)
+            .map_ok(|users| users.iter().filter(|u| !u.bot && u.id != message.author.id).count())
+            .await else {
+                return;
+            };
 
-        users.retain(|u| !u.bot && u.id != message.author.id);
-
-        if users.is_empty() || users.len() < min_stars.try_into().unwrap() {
+        if count < min_stars.try_into().unwrap() {
             return;
         }
 
         if let Some(mut star_message) = self.get_starboard_message(&ctx.http, &channel, reaction.message_id).await {
-            match star_message.edit(&ctx.http, EditMessage::new().content(format!("{} ⭐", users.len()))).await {
+            match star_message.edit(&ctx.http, EditMessage::new().content(format!("{} ⭐", count))).await {
                 Ok(()) => {},
                 Err(serenity::Error::Http(HttpError::UnsuccessfulRequest(http_err))) => {
                     if http_err.status_code == 404 {
@@ -234,7 +234,7 @@ impl EventHandler for Handler {
         let components = CreateActionRow::Buttons(vec![CreateButton::new_link(message.link()).label("Jump to Message")]);
 
         let to_send = CreateMessage::new()
-            .content(format!("{} ⭐", users.len()))
+            .content(format!("{} ⭐", count))
             .embed(self.build_embed(&message))
             .components(vec![components]);
 
