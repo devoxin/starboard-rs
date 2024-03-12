@@ -144,7 +144,7 @@ impl Handler {
         // I... also don't know why but it wants me to declare this mut.
         // Will figure out later. I'm just bug fixing atm.
         let Some(mut star_message) = self.get_starboard_message(&ctx.http, &channel, reaction.message_id).await else {
-            return;
+            return self.delete_starboard_entry(reaction.message_id).await;
         };
 
         let Ok(message) = reaction.message(&ctx.http).await else {
