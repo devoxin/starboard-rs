@@ -2,7 +2,7 @@ use std::env::var;
 use std::fmt::Write;
 
 use dotenv::dotenv;
-use serenity::{all::{Cache, CacheHttp, ChannelId, Context, CreateActionRow, CreateButton, CreateEmbed, CreateEmbedAuthor, CreateMessage, EditMessage, EventHandler, GatewayIntents, GuildChannel, GuildId, HttpError, Message, MessageId, Reaction, UserId}, async_trait, futures::TryFutureExt, Client};
+use serenity::{all::{Cache, CacheHttp, ChannelId, Context, CreateActionRow, CreateButton, CreateEmbed, CreateEmbedAuthor, CreateMessage, EditMessage, EventHandler, GatewayIntents, GuildChannel, GuildId, HttpError, Message, MessageId, Reaction, UserId}, async_trait, Client};
 use sqlx::SqlitePool;
 
 struct Handler {
@@ -156,11 +156,11 @@ impl Handler {
         let mut reaction_count = 0;
 
         if !is_all {
-            let Ok(users) = reaction.users(&ctx.http, reaction.emoji.clone(), Some(100), None::<UserId>).await else {
-                return;
-            };
-
-            reaction_count = users.iter().filter(|u| !u.bot && u.id != message.author.id).count();
+            match reaction.users(&ctx.http, reaction.emoji.clone(), Some(100), None::<UserId>).await
+                .map(|users| users.iter().filter(|u| !u.bot && u.id != message.author.id).count()) {
+                    Ok(count) => reaction_count = count,
+                    Err(_) => return
+                }
         }
 
         if reaction_count >= min_stars.try_into().unwrap() {
@@ -207,9 +207,9 @@ impl EventHandler for Handler {
             return;
         }
 
-        let Ok(count) = reaction.users(&ctx.http, reaction.emoji.clone(), Some(100), None::<UserId>)
-            .map_ok(|users| users.iter().filter(|u| !u.bot && u.id != message.author.id).count())
-            .await else {
+        let Ok(count) = reaction.users(&ctx.http, reaction.emoji.clone(), Some(100), None::<UserId>).await
+            .map(|users| users.iter().filter(|u| !u.bot && u.id != message.author.id).count())
+            else {
                 return;
             };
 
