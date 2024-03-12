@@ -1,5 +1,6 @@
 use std::env::var;
 
+use dotenv::dotenv;
 use serenity::{all::{Cache, CacheHttp, ChannelId, Context, CreateActionRow, CreateButton, CreateEmbed, CreateEmbedAuthor, CreateMessage, EditMessage, EventHandler, GatewayIntents, GuildChannel, GuildId, Message, MessageId, Reaction, UserId}, async_trait, Client};
 use sqlx::{self, SqlitePool};
 
@@ -60,6 +61,7 @@ impl Handler {
 
         // TODO: video attachments
         // TODO: hyperlink filtering
+        // TODO: tenor link embedding
         builder
     }
 
@@ -154,7 +156,7 @@ impl Handler {
                 return;
             };
 
-            has_count = users.iter().filter(|u| !u.bot && u.id != message.author.id).count() > 0;
+            has_count = users.iter().filter(|u| !u.bot && u.id != message.author.id).count() >= min_stars.try_into().unwrap();
         }
 
         if !has_count {
@@ -263,6 +265,8 @@ impl EventHandler for Handler {
 
 #[tokio::main]
 async fn main() {
+    dotenv().ok();
+
     let token = var("TOKEN").expect("Expected a token!");
     // probably don't need guild_messages, todo needs testing
     let intents = GatewayIntents::GUILDS | GatewayIntents::GUILD_MESSAGES | GatewayIntents::GUILD_MESSAGE_REACTIONS;
