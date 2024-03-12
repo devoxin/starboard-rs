@@ -123,7 +123,7 @@ impl Handler {
             }
     }
 
-    async fn check_reactions_and_delete(&self, ctx: &Context, reaction: &Reaction) {
+    async fn check_reactions_and_delete(&self, ctx: &Context, reaction: &Reaction, is_all: bool) {
         if !reaction.emoji.unicode_eq("⭐") {
             return;
         }
@@ -145,13 +145,21 @@ impl Handler {
             return;
         };
 
-        let Ok(mut users) = reaction.users(&ctx.http, reaction.emoji.clone(), Some(100), None::<UserId>).await else {
-            return;
-        };
+        // this is called by reaction_remove_emoji which is when an entire emoji is removed.
+        // in that case, the count will be zero so we can short-circuit fetching the reaction count
+        let mut has_count = !is_all;
 
-        users.retain(|u| !u.bot && u.id != message.author.id);
+        if !is_all {
+            let Ok(mut users) = reaction.users(&ctx.http, reaction.emoji.clone(), Some(100), None::<UserId>).await else {
+                return;
+            };
 
-        if users.is_empty() || users.len() < min_stars.try_into().unwrap() {
+            users.retain(|u| !u.bot && u.id != message.author.id);
+
+            has_count = users.is_empty() || users.len() < min_stars.try_into().unwrap();
+        }
+
+        if !has_count {
             let _ = star_message.delete(&ctx.http).await;
 
             sqlx::query::<_>("DELETE FROM starids WHERE msgid = ?")
@@ -224,7 +232,11 @@ impl EventHandler for Handler {
     }
 
     async fn reaction_remove(&self, ctx: Context, reaction: Reaction) {
-        self.check_reactions_and_delete(&ctx, &reaction).await;
+        self.check_reactions_and_delete(&ctx, &reaction, false).await;
+    }
+
+    async fn reaction_remove_emoji(&self, ctx: Context, reaction: Reaction) {
+        self.check_reactions_and_delete(&ctx, &reaction, true).await;
     }
 
     async fn reaction_remove_all(&self, ctx: Context, channel_id: ChannelId, message_id: MessageId) {
@@ -244,14 +256,10 @@ impl EventHandler for Handler {
         let _ = starboard_message.delete(&ctx.http).await;
 
         sqlx::query::<_>("DELETE FROM starids WHERE msgid = ?")
-                .bind(message_id.get() as i64)
-                .execute(&self.db)
-                .await
-                .expect("Failed to delete starboard entry from database!");
-    }
-
-    async fn reaction_remove_emoji(&self, ctx: Context, reaction: Reaction) {
-        self.check_reactions_and_delete(&ctx, &reaction).await;
+            .bind(message_id.get() as i64)
+            .execute(&self.db)
+            .await
+            .expect("Failed to delete starboard entry from database!");
     }
 }
 
