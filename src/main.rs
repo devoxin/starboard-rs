@@ -2,7 +2,7 @@ use std::env::var;
 use std::fmt::Write;
 
 use dotenv::dotenv;
-use serenity::{all::{Cache, CacheHttp, ChannelId, Context, CreateActionRow, CreateButton, CreateEmbed, CreateEmbedAuthor, CreateMessage, EditMessage, EventHandler, GatewayIntents, GuildChannel, GuildId, Message, MessageId, Reaction, UserId}, async_trait, Client};
+use serenity::{all::{Cache, CacheHttp, ChannelId, Context, CreateActionRow, CreateButton, CreateEmbed, CreateEmbedAuthor, CreateMessage, EditMessage, EventHandler, GatewayIntents, GuildChannel, GuildId, HttpError, Message, MessageId, Reaction, UserId}, async_trait, Client};
 use sqlx::{self, SqlitePool};
 
 struct Handler {
@@ -85,6 +85,14 @@ impl Handler {
         cache.channel(channel_id).map(|channel| channel.clone())
     }
 
+    async fn delete_starboard_entry(&self, message_id: MessageId) {
+        sqlx::query::<_>("DELETE FROM starids WHERE msgid = ?")
+            .bind(message_id.get() as i64)
+            .execute(&self.db)
+            .await
+            .expect("Failed to delete starboard entry from database!");
+    }
+
     async fn get_starboard_config(&self, cache: &Cache, guild_id: &GuildId) -> (Option<GuildChannel>, i8) {
         // TODO: Use query! macro as it validates queries.
         let (channel_id, min_stars) = match sqlx::query_as::<_, (i64, i8)>("SELECT channelid, minstars FROM configs WHERE guildid = ?")
@@ -133,7 +141,9 @@ impl Handler {
         };
 
         // If it's not starred, don't bother doing any additional handling.
-        let Some(star_message) = self.get_starboard_message(&ctx.http, &channel, reaction.message_id).await else {
+        // I... also don't know why but it wants me to declare this mut.
+        // Will figure out later. I'm just bug fixing atm.
+        let Some(mut star_message) = self.get_starboard_message(&ctx.http, &channel, reaction.message_id).await else {
             return;
         };
 
@@ -143,24 +153,29 @@ impl Handler {
 
         // this is called by reaction_remove_emoji which is when an entire emoji is removed.
         // in that case, the count will be zero so we can short-circuit fetching the reaction count
-        let mut has_count = !is_all;
+        let mut reaction_count = 0;
 
         if !is_all {
             let Ok(users) = reaction.users(&ctx.http, reaction.emoji.clone(), Some(100), None::<UserId>).await else {
                 return;
             };
 
-            has_count = users.iter().filter(|u| !u.bot && u.id != message.author.id).count() >= min_stars.try_into().unwrap();
+            reaction_count = users.iter().filter(|u| !u.bot && u.id != message.author.id).count();
         }
 
-        if !has_count {
+        if reaction_count >= min_stars.try_into().unwrap() {
+            match star_message.edit(&ctx.http, EditMessage::new().content(format!("{} ⭐", reaction_count))).await {
+                Ok(()) => {},
+                Err(serenity::Error::Http(HttpError::UnsuccessfulRequest(http_err))) => {
+                    if http_err.status_code == 404 {
+                        self.delete_starboard_entry(reaction.message_id).await;
+                    }
+                }
+                Err(_) => {}
+            }
+        } else {
             let _ = star_message.delete(&ctx.http).await;
-
-            sqlx::query::<_>("DELETE FROM starids WHERE msgid = ?")
-                .bind(reaction.message_id.get() as i64)
-                .execute(&self.db)
-                .await
-                .expect("Failed to delete starboard entry from database!");
+            self.delete_starboard_entry(reaction.message_id).await;
         }
     }
 }
@@ -203,9 +218,17 @@ impl EventHandler for Handler {
         }
 
         if let Some(mut star_message) = self.get_starboard_message(&ctx.http, &channel, reaction.message_id).await {
-            return star_message.edit(&ctx.http, EditMessage::new().content(format!("{} ⭐", users.len())))
-                .await
-                .expect("Failed to edit starboard message!");
+            match star_message.edit(&ctx.http, EditMessage::new().content(format!("{} ⭐", users.len()))).await {
+                Ok(()) => {},
+                Err(serenity::Error::Http(HttpError::UnsuccessfulRequest(http_err))) => {
+                    if http_err.status_code == 404 {
+                        self.delete_starboard_entry(reaction.message_id).await;
+                    }
+                }
+                Err(_) => {}
+            }
+
+            return;
         }
 
         let components = CreateActionRow::Buttons(vec![CreateButton::new_link(message.link()).label("Jump to Message")]);
@@ -248,12 +271,7 @@ impl EventHandler for Handler {
 
         // There shouldn't be any reactions left on this message so we delete it, and also from the database.
         let _ = starboard_message.delete(&ctx.http).await;
-
-        sqlx::query::<_>("DELETE FROM starids WHERE msgid = ?")
-            .bind(message_id.get() as i64)
-            .execute(&self.db)
-            .await
-            .expect("Failed to delete starboard entry from database!");
+        self.delete_starboard_entry(message_id).await;
     }
 }
 
