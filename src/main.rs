@@ -1,4 +1,5 @@
 use std::env::var;
+use std::fmt::Write;
 
 use dotenv::dotenv;
 use serenity::{all::{Cache, CacheHttp, ChannelId, Context, CreateActionRow, CreateButton, CreateEmbed, CreateEmbedAuthor, CreateMessage, EditMessage, EventHandler, GatewayIntents, GuildChannel, GuildId, Message, MessageId, Reaction, UserId}, async_trait, Client};
@@ -19,33 +20,26 @@ impl Handler {
         let mut content = String::new();
 
         if let Some(referenced) = &message.referenced_message {
-            let mut reference_content = format!("> Reply to {}\n", referenced.author.name);
+            writeln!(content, "> Reply to {}\n", referenced.author.name).unwrap();
 
             if referenced.content.is_empty() {
-                reference_content += &format!("> [`No content, jump to message`]({})", referenced.link())
-            } else if referenced.content.len() > 512 {
-                let quote = &format!("{}...", &referenced.content[..509])
-                    .lines()
-                    .map(|line| format!("> {line}"))
-                    .collect::<Vec<String>>()
-                    .join("\n");
-
-                reference_content += quote
+                writeln!(content, "> [`No content, jump to message`]({})\n", referenced.link()).unwrap();
             } else {
-                reference_content += &referenced.content.lines()
-                    .map(|line| format!("> {line}"))
-                    .collect::<Vec<String>>()
-                    .join("\n")
-            }
+                // not sure about this to_owned tbh!
+                let quote = if referenced.content.len() > 512 { format!("{}...", &referenced.content[..509]) } else { referenced.content.to_owned() };
 
-            content += &reference_content
+                for line in quote.lines() {
+                    writeln!(content, "> {line}").unwrap()
+                }
+
+                writeln!(content).unwrap();
+            }
         }
 
-        content += "\n\n";
-
         if message.content.len() > 1475 {
-            content += &format!("{}...", &message.content[..1475]);
+            write!(content, "{}...", &message.content[..1475]).unwrap();
         } else {
+            // can't use write! here as it expects a format argument which seems redundant.
             content += &message.content;
         }
 
