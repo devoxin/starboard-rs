@@ -1,6 +1,6 @@
 use std::env::var;
 
-use serenity::{all::{Cache, ChannelId, Context, CreateActionRow, CreateButton, CreateEmbed, CreateEmbedAuthor, CreateMessage, EditMessage, EventHandler, GatewayIntents, GuildChannel, GuildId, Message, MessageId, Reaction, UserId}, async_trait, Client};
+use serenity::{all::{Cache, CacheHttp, ChannelId, Context, CreateActionRow, CreateButton, CreateEmbed, CreateEmbedAuthor, CreateMessage, EditMessage, EventHandler, GatewayIntents, GuildChannel, GuildId, Message, MessageId, Reaction, UserId}, async_trait, Client};
 use sqlx::{self, SqlitePool};
 
 struct Handler {
@@ -102,12 +102,15 @@ impl Handler {
         (channel_id, min_stars)
     }
 
-    async fn get_starboard_message(&self, message_id: MessageId) -> Option<MessageId> {
+    async fn get_starboard_message(&self, cache: impl CacheHttp, channel: &GuildChannel, message_id: MessageId) -> Option<Message> {
         match sqlx::query_as::<_, (String,)>("SELECT starid FROM starids WHERE msgid = ?")
             .bind(message_id.get() as i64)
             .fetch_optional(&self.db)
             .await {
-                Ok(Some((id,))) => Some(MessageId::new(id.parse().expect("Failed to parse ID!"))),
+                Ok(Some((id,))) => match channel.message(cache, MessageId::new(id.parse().expect("Failed to parse ID!"))).await {
+                    Ok(message) => Some(message),
+                    Err(_) => None
+                },
                 Ok(None) => None,
                 Err(err) => {
                     eprintln!("Error in SQL: {err}");
@@ -136,10 +139,6 @@ impl EventHandler for Handler {
             return;
         }
 
-        if guild_id != 389183231716622340 {
-            return;
-        }
-
         let Ok(mut users) = reaction.users(&ctx.http, reaction.emoji.clone(), Some(100), None::<UserId>).await else {
             return;
         };
@@ -160,13 +159,10 @@ impl EventHandler for Handler {
             return;
         }
 
-        if let Some(star_message_id) = self.get_starboard_message(message.id).await {
-            if let Ok(mut star_message) = channel.message(&ctx.http, star_message_id).await {
-                star_message.edit(&ctx.http, EditMessage::new().content(format!("{} ⭐", users.len())))
-                    .await
-                    .expect("Failed to edit starboard message!");
-                return;
-            }
+        if let Some(mut star_message) = self.get_starboard_message(&ctx.http, &channel, message.id).await {
+            return star_message.edit(&ctx.http, EditMessage::new().content(format!("{} ⭐", users.len())))
+                .await
+                .expect("Failed to edit starboard message!");
         }
 
         let components = CreateActionRow::Buttons(vec![CreateButton::new_link(message.link()).label("Jump to Message")]);
@@ -189,7 +185,17 @@ impl EventHandler for Handler {
     }
 
     async fn reaction_remove(&self, ctx: Context, reaction: Reaction) {
+        if !reaction.emoji.unicode_eq("⭐") {
+            return;
+        }
 
+        let Some(guild_id) = reaction.guild_id else {
+            return;
+        };
+
+        let (Some(channel), min_stars) = self.get_starboard_config(&ctx.cache, &guild_id).await else {
+            return;
+        };
     }
 
     async fn reaction_remove_all(&self, ctx: Context, channel_id: ChannelId, message_id: MessageId) {
