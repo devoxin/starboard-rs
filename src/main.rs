@@ -20,10 +20,10 @@ impl Handler {
         let mut content = String::new();
 
         if let Some(referenced) = &message.referenced_message {
-            writeln!(content, "> Reply to **{}**\n", referenced.author.name).unwrap();
+            writeln!(content, "> Reply to **{}**", referenced.author.name).unwrap();
 
             if referenced.content.is_empty() {
-                writeln!(content, "> [`No content, jump to message`]({})", referenced.link()).unwrap();
+                writeln!(content, "> [`No content, jump to message`]({})\n", referenced.link()).unwrap();
             } else {
                 // not sure about this to_owned tbh!
                 let quote = if referenced.content.len() > 512 { format!("{}...", &referenced.content[..509]) } else { referenced.content.to_owned() };
@@ -39,7 +39,6 @@ impl Handler {
         if message.content.len() > 1475 {
             write!(content, "{}...", &message.content[..1475]).unwrap();
         } else {
-            // can't use write! here as it expects a format argument which seems redundant.
             content += &message.content;
         }
 
