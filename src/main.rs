@@ -3,7 +3,7 @@ use std::fmt::Write;
 
 use dotenv::dotenv;
 use serenity::{all::{Cache, CacheHttp, ChannelId, Context, CreateActionRow, CreateButton, CreateEmbed, CreateEmbedAuthor, CreateMessage, EditMessage, EventHandler, GatewayIntents, GuildChannel, GuildId, HttpError, Message, MessageId, Reaction, UserId}, async_trait, Client};
-use sqlx::{self, SqlitePool};
+use sqlx::SqlitePool;
 
 struct Handler {
     db: SqlitePool,
@@ -239,12 +239,12 @@ impl EventHandler for Handler {
             .components(vec![components]);
 
         if let Ok(starboard_message) = channel.send_message(&ctx.http, to_send).await {
-            sqlx::query::<_>("INSERT INTO starids (msgid, starid) VALUES (?, ?)")
+            sqlx::query::<_>("INSERT OR REPLACE INTO starids (msgid, starid) VALUES (?, ?)")
                 .bind(message.id.get() as i64)
                 .bind(starboard_message.id.get() as i64)
                 .execute(&self.db)
                 .await
-                .expect("Failed to insert into database!");
+                .expect("Failed to insert starboard entry into database!");
         };
     }
 
