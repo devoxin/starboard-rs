@@ -103,11 +103,11 @@ impl Handler {
     }
 
     async fn get_starboard_message(&self, cache: impl CacheHttp, channel: &GuildChannel, message_id: MessageId) -> Option<Message> {
-        match sqlx::query_as::<_, (String,)>("SELECT starid FROM starids WHERE msgid = ?")
+        match sqlx::query_as::<_, (i64,)>("SELECT starid FROM starids WHERE msgid = ?")
             .bind(message_id.get() as i64)
             .fetch_optional(&self.db)
             .await {
-                Ok(Some((id,))) => match channel.message(cache, MessageId::new(id.parse().expect("Failed to parse ID!"))).await {
+                Ok(Some((id,))) => match channel.message(cache, MessageId::new(id as u64)).await {
                     Ok(message) => Some(message),
                     Err(_) => None
                 },
