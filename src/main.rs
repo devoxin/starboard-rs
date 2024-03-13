@@ -98,7 +98,10 @@ impl Handler {
             .bind(guild_id.get() as i64)
             .fetch_optional(&self.db)
             .await {
-                Ok(Some((id, min_stars))) => (self.get_channel_from_guild_cache(cache, guild_id, &ChannelId::new(id as u64)), min_stars),
+                Ok(Some((id, min_stars))) => {
+                    let channel = if id == 0 { self.find_starboard_channel(cache, guild_id) } else { self.get_channel_from_guild_cache(cache, guild_id, &ChannelId::new(id as u64)) };
+                    (channel, min_stars)
+                }
                 Ok(None) => (self.find_starboard_channel(cache, guild_id), 1),
                 Err(err) => {
                     eprintln!("Error in SQL: {err}");
