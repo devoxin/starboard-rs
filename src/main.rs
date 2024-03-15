@@ -167,20 +167,19 @@ impl Handler {
             return self.delete_starboard_entry(reaction.message_id).await;
         };
 
-        let Ok(message) = reaction.message(&ctx.http).await else {
-            return;
-        };
-
         // this is called by reaction_remove_emoji which is when an entire emoji is removed.
         // in that case, the count will be zero so we can short-circuit fetching the reaction count
         let mut reaction_count = 0;
 
         if !is_all {
-            match reaction.users(&ctx.http, reaction.emoji.clone(), Some(100), None::<UserId>).await
-                .map(|users| users.iter().filter(|u| !u.bot && u.id != message.author.id).count()) {
-                    Ok(count) => reaction_count = count,
-                    Err(_) => return
-                }
+            let (Ok(message), Ok(users)) = join!(
+                reaction.message(&ctx.http),
+                reaction.users(&ctx.http, reaction.emoji.clone(), Some(100), None::<UserId>)
+            ) else {
+                return;
+            };
+
+            reaction_count = users.iter().filter(|u| !u.bot && u.id != message.author.id).count();
         }
 
         if reaction_count >= min_stars.try_into().unwrap() {
