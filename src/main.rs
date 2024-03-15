@@ -4,7 +4,7 @@ use std::fmt::Write;
 use dotenv::dotenv;
 use serenity::{all::{Cache, CacheHttp, ChannelId, Context, CreateActionRow, CreateButton, CreateEmbed, CreateEmbedAuthor, CreateMessage, EditMessage, EventHandler, GatewayIntents, GuildChannel, GuildId, HttpError, Message, MessageId, Reaction, UserId}, async_trait, Client};
 use sqlx::SqlitePool;
-use tokio::join;
+use tokio::try_join;
 
 struct Handler {
     db: SqlitePool,
@@ -172,7 +172,7 @@ impl Handler {
         let mut reaction_count = 0;
 
         if !is_all {
-            let (Ok(message), Ok(users)) = join!(
+            let Ok((message, users)) = try_join!(
                 reaction.message(&ctx.http),
                 reaction.users(&ctx.http, reaction.emoji.clone(), Some(100), None::<UserId>)
             ) else {
@@ -218,7 +218,7 @@ impl EventHandler for Handler {
             return;
         }
 
-        let (Ok(message), Ok(users)) = join!(
+        let Ok((message, users)) = try_join!(
             reaction.message(&ctx.http),
             reaction.users(&ctx.http, reaction.emoji.clone(), Some(100), None::<UserId>)
         ) else {
