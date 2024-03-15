@@ -53,7 +53,7 @@ impl Handler {
         }
 
         if let Some(video_url) = self.resolve_video(message) {
-            builder = builder.field("\\u200b", format!("[`Video Attachment`]({video_url})"), false)
+            builder = builder.field("\u{200b}", format!("[`Video Attachment`]({video_url})"), false)
         }
 
         // TODO: hyperlink filtering
