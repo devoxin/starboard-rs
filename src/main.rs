@@ -52,7 +52,10 @@ impl Handler {
             builder = builder.image(image_url);
         }
 
-        // TODO: video attachments
+        if let Some(video_url) = self.resolve_video(message) {
+            builder = builder.field("\\u200b", format!("[`Video Attachment`]({video_url})"), false)
+        }
+
         // TODO: hyperlink filtering
         // TODO: tenor link embedding
         builder
@@ -66,6 +69,20 @@ impl Handler {
                     em.image.as_ref()
                         .map(|img| img.url.to_string())
                         .or_else(|| em.thumbnail.as_ref().map(|thumb| thumb.url.to_string()))
+                })
+            })
+    }
+
+    fn resolve_video(&self, message: &Message) -> Option<String> {
+        message.attachments.first()
+            .and_then(|at| {
+                at.content_type.as_ref()
+                    .filter(|ct| ct.starts_with("video/"))
+                    .map(|_| at.url.to_string())
+            })
+            .or_else(|| {
+                message.embeds.first().and_then(|em| {
+                    em.video.as_ref().map(|v| v.url.to_string())
                 })
             })
     }
