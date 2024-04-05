@@ -59,17 +59,25 @@ impl Handler {
             builder = builder.image(image_url);
         }
 
-        let mut stars = format!("{count} ⭐");
+        let stars = format!("{count} ⭐");
 
-        match self.resolve_video(message) {
-            Some(VideoAttachment { url, supported_format: true }) => {
-                stars = format!("[{count}]({url}) ⭐");
-            },
-            Some(VideoAttachment { url, supported_format: false }) => {
-                builder = builder.field("\u{200b}", format!("[`Video Attachment`]({url})"), false)
-            },
-            None => {} // nothing to do here
+        if let Some(video) = self.resolve_video(message) {
+            builder = builder.field("\u{200b}", format!("[`Video Attachment`]({})", video.url), false)
         }
+
+        // Discord doesn't support video embeds alongside rich embeds so for now this is just
+        // a pipe dream. I'll leave the code in should their stance change in the future,
+        // this will allow embedding the videos alongside the star message embed.
+
+        // match self.resolve_video(message) {
+        //     Some(VideoAttachment { url, supported_format: true }) => {
+        //         stars = format!("[{count}]({url}) ⭐");
+        //     },
+        //     Some(VideoAttachment { url, supported_format: _ }) => {
+        //         builder = builder.field("\u{200b}", format!("[`Video Attachment`]({url})"), false)
+        //     },
+        //     None => {} // nothing to do here
+        // }
 
         let components = CreateActionRow::Buttons(vec![CreateButton::new_link(message.link()).label("Jump to Message")]);
 
