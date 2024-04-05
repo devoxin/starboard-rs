@@ -116,7 +116,7 @@ impl Handler {
 
         Some(VideoAttachment {
             url: video_url,
-            supported_format: mime_type == "video/webm" || mime_type == "video/mp4" || mime_type == "video/quicktime"
+            supported_format: matches!(mime_type.as_str(), "video/webm" | "video/mp4" | "video/quicktime")
         })
     }
 
