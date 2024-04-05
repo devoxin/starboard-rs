@@ -6,6 +6,11 @@ use serenity::{all::{Cache, CacheHttp, ChannelId, Context, CreateActionRow, Crea
 use sqlx::SqlitePool;
 use tokio::try_join;
 
+struct VideoAttachment {
+    url: String,
+    supported_format: bool
+}
+
 struct Handler {
     db: SqlitePool,
 }
@@ -17,7 +22,8 @@ impl Handler {
         }
     }
 
-    fn build_embed(&self, message: &Message) -> CreateEmbed {
+    fn build_message(&self, message: &Message, count: usize) -> CreateMessage {
+        let to_send = CreateMessage::new();
         let mut content = String::new();
 
         if let Some(referenced) = &message.referenced_message {
@@ -53,13 +59,25 @@ impl Handler {
             builder = builder.image(image_url);
         }
 
-        if let Some(video_url) = self.resolve_video(message) {
-            builder = builder.field("\u{200b}", format!("[`Video Attachment`]({video_url})"), false)
+        let mut stars = format!("{count} ⭐");
+
+        match self.resolve_video(message) {
+            Some(VideoAttachment { url, supported_format: true }) => {
+                stars = format!("[{count}]({url}) ⭐");
+            },
+            Some(VideoAttachment { url, supported_format: false }) => {
+                builder = builder.field("\u{200b}", format!("[`Video Attachment`]({url})"), false)
+            },
+            None => {} // nothing to do here
         }
+
+        let components = CreateActionRow::Buttons(vec![CreateButton::new_link(message.link()).label("Jump to Message")]);
 
         // TODO: hyperlink filtering
         // TODO: tenor link embedding
-        builder
+        to_send.content(stars)
+            .embed(builder)
+            .components(vec![components])
     }
 
     fn resolve_attachment(&self, message: &Message) -> Option<String> {
@@ -74,8 +92,8 @@ impl Handler {
             })
     }
 
-    fn resolve_video(&self, message: &Message) -> Option<String> {
-        message.attachments.first()
+    fn resolve_video(&self, message: &Message) -> Option<VideoAttachment> {
+        let Some(video_url) = message.attachments.first()
             .and_then(|at| {
                 at.content_type.as_ref()
                     .filter(|ct| ct.starts_with("video/"))
@@ -85,7 +103,21 @@ impl Handler {
                 message.embeds.first().and_then(|em| {
                     em.video.as_ref().map(|v| v.url.to_string())
                 })
+            }) else {
+                return None;
+            };
+
+        let Some(mime_type) = message.attachments.first().and_then(|at| at.content_type.as_ref()) else {
+            return Some(VideoAttachment {
+                url: video_url,
+                supported_format: true // Will be an embed, so should be supported.
             })
+        };
+
+        Some(VideoAttachment {
+            url: video_url,
+            supported_format: mime_type == "video/webm" || mime_type == "video/mp4" || mime_type == "video/quicktime"
+        })
     }
 
     fn find_starboard_channel(&self, cache: &Cache, guild_id: &GuildId) -> Option<GuildChannel> {
@@ -249,14 +281,7 @@ impl EventHandler for Handler {
             return;
         }
 
-        let components = CreateActionRow::Buttons(vec![CreateButton::new_link(message.link()).label("Jump to Message")]);
-
-        let to_send = CreateMessage::new()
-            .content(format!("{} ⭐", count))
-            .embed(self.build_embed(&message))
-            .components(vec![components]);
-
-        if let Ok(starboard_message) = channel.send_message(&ctx.http, to_send).await {
+        if let Ok(starboard_message) = channel.send_message(&ctx.http, self.build_message(&message, count)).await {
             sqlx::query::<_>("INSERT OR REPLACE INTO starids (msgid, starid) VALUES (?, ?)")
                 .bind(message.id.get() as i64)
                 .bind(starboard_message.id.get() as i64)
