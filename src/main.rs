@@ -254,7 +254,11 @@ impl EventHandler for Handler {
             return;
         };
 
-        if channel.nsfw || reaction.channel_id == channel.id {
+        let Some(reaction_channel) = self.get_channel_from_guild_cache(&ctx.cache, &guild_id, &reaction.channel_id) else {
+            return;
+        };
+
+        if reaction_channel.nsfw || reaction.channel_id == channel.id {
             return;
         }
 
