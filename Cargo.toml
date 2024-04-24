@@ -8,5 +8,6 @@ edition = "2021"
 [dependencies]
 dotenv = "0.15.0"
 serenity = "0.12.1"
+dashmap = "5.5.3"
 sqlx = { version = "0.7.3", features = ["runtime-tokio", "sqlite"] }
 tokio = { version = "1", features = ["full"] }

@@ -1,10 +1,11 @@
-use std::env::var;
+use std::{env::var, sync::Arc};
 use std::fmt::Write;
 
+use dashmap::DashMap;
 use dotenv::dotenv;
 use serenity::{all::{Cache, CacheHttp, ChannelId, Context, CreateActionRow, CreateButton, CreateEmbed, CreateEmbedAuthor, CreateMessage, EditMessage, EventHandler, GatewayIntents, GuildChannel, GuildId, HttpError, Message, MessageId, Reaction, UserId}, async_trait, Client};
 use sqlx::SqlitePool;
-use tokio::try_join;
+use tokio::{sync::Mutex, try_join};
 
 struct VideoAttachment {
     url: String,
@@ -13,12 +14,14 @@ struct VideoAttachment {
 
 struct Handler {
     db: SqlitePool,
+    locks: DashMap<GuildId, Arc<Mutex<()>>>,
 }
 
 impl Handler {
     async fn new() -> Handler {
         Handler {
-            db: SqlitePool::connect("sqlite://star.db?mode=rwc").await.expect("Can't initialise SQL connection")
+            db: SqlitePool::connect("sqlite://star.db?mode=rwc").await.expect("Can't initialise SQL connection"),
+            locks: DashMap::new()
         }
     }
 
@@ -200,9 +203,6 @@ impl Handler {
             return;
         };
 
-        // If it's not starred, don't bother doing any additional handling.
-        // I... also don't know why but it wants me to declare this mut.
-        // Will figure out later. I'm just bug fixing atm.
         let Some(mut star_message) = self.get_starboard_message(&ctx.http, &channel, reaction.message_id).await else {
             return self.delete_starboard_entry(reaction.message_id).await;
         };
@@ -261,6 +261,13 @@ impl EventHandler for Handler {
         if reaction_channel.nsfw || reaction.channel_id == channel.id {
             return;
         }
+
+        let lock = {
+            let lock_ref = self.locks.entry(guild_id).or_default();
+            Arc::clone(&*lock_ref)
+        };
+
+        let _guard = lock.lock().await;
 
         let Ok((message, users)) = try_join!(
             reaction.message(&ctx.http),
