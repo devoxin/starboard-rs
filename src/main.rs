@@ -207,6 +207,13 @@ impl Handler {
             return self.delete_starboard_entry(reaction.message_id).await;
         };
 
+        let lock = {
+            let lock_ref = self.locks.entry(guild_id).or_default();
+            Arc::clone(&*lock_ref)
+        };
+
+        let _guard = lock.lock().await;
+
         // this is called by reaction_remove_emoji which is when an entire emoji is removed.
         // in that case, the count will be zero so we can short-circuit fetching the reaction count
         let mut reaction_count = 0;
@@ -326,6 +333,13 @@ impl EventHandler for Handler {
             },
             None => return
         };
+
+        let lock = {
+            let lock_ref = self.locks.entry(guild_id).or_default();
+            Arc::clone(&*lock_ref)
+        };
+
+        let _guard = lock.lock().await;
 
         let Some(starboard_message) = self.get_starboard_message(&ctx.http, &starboard_channel, message_id).await else {
             return;
