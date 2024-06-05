@@ -335,7 +335,7 @@ impl EventHandler for Handler {
         };
 
         let lock = {
-            let lock_ref = self.locks.entry(guild_id).or_default();
+            let lock_ref = self.locks.entry(starboard_channel.guild_id).or_default();
             Arc::clone(&*lock_ref)
         };
 
