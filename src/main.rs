@@ -88,7 +88,14 @@ impl Handler {
         // TODO: tenor link embedding
         to_send.content(stars)
             .embed(builder)
-            .add_embeds(message.embeds.iter().filter(|e| e.kind == Some("rich".to_string())).take(4).cloned().map(CreateEmbed::from).collect())
+            .add_embeds(
+                message.embeds.iter()
+                    .filter(|e| e.kind == Some("rich".to_string()) || e.kind == Some("link".to_string()))
+                    .take(4)
+                    .cloned()
+                    .map(CreateEmbed::from)
+                    .collect()
+            )
             .components(vec![components])
     }
 
