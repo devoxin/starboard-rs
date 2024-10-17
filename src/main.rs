@@ -26,13 +26,11 @@ impl Handler {
     }
 
     fn log_if_debug(msg: String) {
-        let debug_logs = var("STAR_DEBUG").is_ok_and(|val| val.eq("1"));
+        let debug_logs = var("STAR_DEBUG").is_ok_and(|val| val == "1");
 
-        if !debug_logs {
-            return;
+        if debug_logs {
+            println!("[STAR_DEBUG] {}", msg);
         }
-
-        println!("[STAR_DEBUG] {}", msg);
     }
 
     fn build_message(&self, message: &Message, count: usize) -> CreateMessage {
