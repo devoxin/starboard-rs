@@ -25,6 +25,16 @@ impl Handler {
         }
     }
 
+    fn log_if_debug(msg: String) {
+        let debug_logs = var("STAR_DEBUG").is_ok_and(|val| val.eq("1"));
+
+        if !debug_logs {
+            return;
+        }
+
+        println!("[STAR_DEBUG] {}", msg);
+    }
+
     fn build_message(&self, message: &Message, count: usize) -> CreateMessage {
         let to_send = CreateMessage::new();
         let mut content = String::new();
@@ -270,6 +280,7 @@ impl EventHandler for Handler {
         };
 
         let Some(reaction_channel) = self.get_channel_from_guild_cache(&ctx.cache, &guild_id, &reaction.channel_id) else {
+            Handler::log_if_debug(format!("ignoring uncached channel {}", reaction.channel_id));
             return;
         };
 
