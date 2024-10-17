@@ -267,15 +267,20 @@ impl Handler {
 #[async_trait]
 impl EventHandler for Handler {
     async fn reaction_add(&self, ctx: Context, reaction: Reaction) {
+        Handler::log_if_debug(format!("received reaction {} in channel {}", reaction.emoji, reaction.channel_id));
+
         if !reaction.emoji.unicode_eq("⭐") {
+            Handler::log_if_debug("reaction does not match".to_string());
             return;
         }
 
         let Some(guild_id) = reaction.guild_id else {
+            Handler::log_if_debug("event is missing guild id".to_string());
             return;
         };
 
         let (Some(channel), min_stars) = self.get_starboard_config(&ctx.cache, &guild_id).await else {
+            Handler::log_if_debug(format!("guild {} has no starboard config", guild_id));
             return;
         };
 
@@ -285,6 +290,7 @@ impl EventHandler for Handler {
         };
 
         if reaction_channel.nsfw || reaction.channel_id == channel.id {
+            Handler::log_if_debug("channel is either nsfw or designated starboard channel".to_string());
             return;
         }
 
