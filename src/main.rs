@@ -287,7 +287,7 @@ impl EventHandler for Handler {
             return;
         };
 
-        if reaction_channel.nsfw || reaction.channel_id == channel.id {
+        if reaction.channel_id == channel.id || (reaction_channel.nsfw && !channel.nsfw) {
             Handler::log_if_debug("channel is either nsfw or designated starboard channel".to_string());
             return;
         }
