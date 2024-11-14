@@ -154,7 +154,9 @@ impl Handler {
 
     fn get_channel_from_guild_cache(&self, cache: &Cache, guild_id: &GuildId, channel_id: &ChannelId) -> Option<GuildChannel> {
         let guild = cache.guild(guild_id)?;
-        guild.channels.values().find(|channel| channel.id.eq(channel_id)).cloned()
+        guild.channels.values().find(|channel| channel.id.eq(channel_id))
+            .or_else(|| guild.threads.iter().find(|thread| thread.id.eq(channel_id)))
+            .cloned()
     }
 
     fn get_channel_from_cache(&self, cache: &Cache, channel_id: &ChannelId) -> Option<GuildChannel> {
